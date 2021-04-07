@@ -1,84 +1,24 @@
 #include"Rasterizer.h"
-Vector3f shadeFragment(const Triangle& tri, const Texture& texture, const std::vector<Light> lights, float alpha, float beta, float gamma, float weight, const Triangle &viewpos);
-
-void Rasterizer::rendering(const Model model, const std::vector<Light> &lights, const Transformation& trans) {
-	int aabbxmin, aabbymin, aabbxmax, aabbymax;
-	float t1, t2, t3, alpha, beta, gamma, u, v, weight;
-	//MVP±ä»»£¬±ä»»¹âÔ´ºÍÄ£ĞÍ£¬ Èı½ÇĞÎ¶¥µãµÄ·¨ÏßÒªÌØÊâ´¦Àí
-	Matrix4f mvp = trans.P * trans.V * model.M;
-	Matrix4f mv = trans.V * model.M;
-	Matrix4f mvForNormal = (trans.V * model.M).inverse().transpose();
-	//¶Ô¹âÔ´±ä»»
-	std::vector<Light> viewLight = lights;
-	for (auto &light : viewLight) {
-		light.position = trans.V * light.position;
-	}
-
-	//¿ªÊ¼Öğ¸öäÖÈ¾Èı½ÇĞÎ
-	Triangle rtTri, viewpos;
-	for (const auto &ele : model.TriangleList) {
-		//±ä»»rtTriµÃµ½¹âÕ¤»¯Èı½ÇĞÎ
-		rtTri = *ele;
-		viewpos = *ele;
-		for (int i = 0; i < 3; ++i) {
-			rtTri.vertex[i] = mvp * rtTri.vertex[i];
-			viewpos.vertex[i] = mv * viewpos.vertex[i];
-			float w = rtTri.vertex[i].w();
-			rtTri.vertex[i].x() /= w;
-			rtTri.vertex[i].y() /= w;
-			rtTri.vertex[i].z() /= w;
-			rtTri.vertexNormal[i] = mvForNormal * rtTri.vertexNormal[i];
-		}
-		//viewpoint±ä»»
-		for (auto& v : rtTri.vertex) {
-			v.x() = (v.x() + 1.0f) * width * 0.5f;
-			v.y() = (v.y() + 1.0f) * height * 0.5f;
-		}
-
-		//ÅĞ¶ÏÄÄĞ©µãÔÚÈı½ÇĞÎÄÚ£¬²¢äÖÈ¾
-		aabbxmin =  ceil(std::min(rtTri.vertex[0].x(), std::min(rtTri.vertex[1].x(), rtTri.vertex[2].x())));
-		aabbymin =  ceil(std::min(rtTri.vertex[0].y(), std::min(rtTri.vertex[1].y(), rtTri.vertex[2].y())));
-		aabbxmax = floor(std::max(rtTri.vertex[0].x(), std::max(rtTri.vertex[1].x(), rtTri.vertex[2].x())));
-		aabbymax = floor(std::max(rtTri.vertex[0].y(), std::max(rtTri.vertex[1].y(), rtTri.vertex[2].y())));
-		for (float x = aabbxmin; x <= aabbxmax && x <= width; ++x) {
-			for (float y = aabbymin; y <= aabbymax && y <= height; ++y) {
-				t1 = (rtTri.vertex[1].x() - rtTri.vertex[0].x()) * (y - rtTri.vertex[0].y()) - (x - rtTri.vertex[0].x()) * (rtTri.vertex[1].y() - rtTri.vertex[0].y());
-				t2 = (rtTri.vertex[2].x() - rtTri.vertex[1].x()) * (y - rtTri.vertex[1].y()) - (x - rtTri.vertex[1].x()) * (rtTri.vertex[2].y() - rtTri.vertex[1].y());
-				t3 = (rtTri.vertex[0].x() - rtTri.vertex[2].x()) * (y - rtTri.vertex[2].y()) - (x - rtTri.vertex[2].x()) * (rtTri.vertex[0].y() - rtTri.vertex[2].y());
-				if (((t1 > 0) && (t2 > 0) && (t3 > 0)) || ((t1 < 0) && (t2 < 0) && (t3 < 0))) {
-					alpha = ((rtTri.vertex[1].x() - x) * (rtTri.vertex[2].y() - y) - (rtTri.vertex[2].x() - x) * (rtTri.vertex[1].y() - y)) / ((rtTri.vertex[1].x() - rtTri.vertex[0].x()) * (rtTri.vertex[2].y() - rtTri.vertex[0].y()) - (rtTri.vertex[2].x() - rtTri.vertex[0].x()) * (rtTri.vertex[1].y() - rtTri.vertex[0].y()));
-					beta  = ((rtTri.vertex[0].x() - x) * (rtTri.vertex[2].y() - y) - (rtTri.vertex[2].x() - x) * (rtTri.vertex[0].y() - y)) / ((rtTri.vertex[0].x() - rtTri.vertex[1].x()) * (rtTri.vertex[2].y() - rtTri.vertex[1].y()) - (rtTri.vertex[2].x() - rtTri.vertex[1].x()) * (rtTri.vertex[0].y() - rtTri.vertex[1].y()));
-					gamma = 1 - alpha - beta;
-					weight = 1.0f / (alpha / rtTri.vertex[0].w() + beta / rtTri.vertex[1].w() + gamma / rtTri.vertex[2].w());
-					float Z = weight * (alpha * rtTri.vertex[0].z() / rtTri.vertex[0].w() + beta * rtTri.vertex[1].z() / rtTri.vertex[1].w() + gamma * rtTri.vertex[2].z() / rtTri.vertex[2].w());
-					if (Z > depth_buffer[getBufferIndex(x, y)]) {
-						depth_buffer[getBufferIndex(x, y)] = Z;
-						frame_buffer[getBufferIndex(x, y)] = shadeFragment(rtTri, model.texture, viewLight, alpha, beta, gamma, weight, viewpos);
-					}
-				}
-			}
-		}
-	}
-}
 
 size_t Rasterizer::getBufferIndex(float x, float y) const
 {
 	return size_t(floor(x) + (height - floor(y)) * width);
 }
 
-Vector4f interpolate(const Vector4f* attribt, const Vector4f* triPos, float alpha, float beta, float gamma, float weight) {
+//é€è§†çŸ«æ­£æ’å€¼
+static Vector4f interpolate(const Vector4f* attribt, const Vector4f* triPos, float alpha, float beta, float gamma, float weight) {
 	return (alpha * attribt[0] / triPos[0].w() + beta * attribt[1] / triPos[1].w() + gamma * attribt[2] / triPos[2].w()) * weight;
 }
 
-Vector3f interpolate(const Vector3f *attribt, const Vector4f* triPos, float alpha, float beta, float gamma, float weight) {
+static Vector3f interpolate(const Vector3f *attribt, const Vector4f* triPos, float alpha, float beta, float gamma, float weight) {
 	return (alpha * attribt[0] / triPos[0].w() + beta * attribt[1] / triPos[1].w() + gamma * attribt[2] / triPos[2].w()) * weight;
 }
 
-Vector2f interpolate(const Vector2f* attribt, const Vector4f* triPos, float alpha, float beta, float gamma, float weight) {
+static Vector2f interpolate(const Vector2f* attribt, const Vector4f* triPos, float alpha, float beta, float gamma, float weight) {
 	return (alpha * attribt[0] / triPos[0].w() + beta * attribt[1] / triPos[1].w() + gamma * attribt[2] / triPos[2].w()) * weight;
 }
 
-
+//BlinnPhongç€è‰²
 static Vector3f BlinnPhongShading(const Vector4f &pos, const Vector3f &texColor, const Vector3f &normal, const std::vector<Light> &lights)
 {
 	Vector3f ka = Vector3f(0.005, 0.005, 0.005);
@@ -109,7 +49,7 @@ static Vector3f BlinnPhongShading(const Vector4f &pos, const Vector3f &texColor,
 	return result_color * 255.f;
 }
 
-//bump
+//æ³•çº¿è´´å›¾
 Vector3f BumpShading(const Vector4f& pos, const Vector3f& texColor, const Vector2f& texCoords, const Vector3f& normal, const std::vector<Light>& lights, const Texture &texture)
 {	float kh = 0.2, kn = 0.1;
 
@@ -136,6 +76,7 @@ Vector3f BumpShading(const Vector4f& pos, const Vector3f& texColor, const Vector
 	return result_color;
 }
 
+
 Vector3f shadeFragment(const Triangle& tri, const Texture& texture, const std::vector<Light> lights, float alpha, float beta, float gamma, float weight, const Triangle& viewpos) {
 	Vector4f pos = interpolate(viewpos.vertex, tri.vertex, alpha, beta, gamma, weight);
 	Vector2f texCoord = interpolate(tri.texCoord, tri.vertex, alpha, beta, gamma, weight);
@@ -144,3 +85,67 @@ Vector3f shadeFragment(const Triangle& tri, const Texture& texture, const std::v
 	normal = BumpShading(pos, texColor, texCoord, normal, lights, texture);
 	return BlinnPhongShading(pos, texColor, normal, lights);
 }
+
+void Rasterizer::rendering(const Model model, const std::vector<Light> &lights, const Transformation& trans) {
+	int aabbxmin, aabbymin, aabbxmax, aabbymax;
+	float t1, t2, t3, alpha, beta, gamma, u, v, weight;
+	//MVPå˜æ¢ï¼Œå˜æ¢å…‰æºå’Œæ¨¡å‹ï¼Œ ä¸‰è§’å½¢é¡¶ç‚¹çš„æ³•çº¿è¦ç‰¹æ®Šå¤„ç†
+	Matrix4f mvp = trans.P * trans.V * model.M;
+	Matrix4f mv = trans.V * model.M;
+	Matrix4f mvForNormal = (trans.V * model.M).inverse().transpose();
+	//å¯¹å…‰æºå˜æ¢
+	std::vector<Light> viewLight = lights;
+	for (auto &light : viewLight) {
+		light.position = trans.V * light.position;
+	}
+
+	//å¼€å§‹é€ä¸ªæ¸²æŸ“ä¸‰è§’å½¢
+	Triangle rtTri, viewpos;
+	for (const auto &ele : model.TriangleList) {
+		//å˜æ¢rtTriå¾—åˆ°å…‰æ …åŒ–ä¸‰è§’å½¢
+		rtTri = *ele;
+		viewpos = *ele;
+		for (int i = 0; i < 3; ++i) {
+			rtTri.vertex[i] = mvp * rtTri.vertex[i];
+			viewpos.vertex[i] = mv * viewpos.vertex[i];
+			float w = rtTri.vertex[i].w();
+			rtTri.vertex[i].x() /= w;
+			rtTri.vertex[i].y() /= w;
+			rtTri.vertex[i].z() /= w;
+			rtTri.vertexNormal[i] = mvForNormal * rtTri.vertexNormal[i];
+		}
+		//viewpointå˜æ¢
+		for (auto& v : rtTri.vertex) {
+			v.x() = (v.x() + 1.0f) * width * 0.5f;
+			v.y() = (v.y() + 1.0f) * height * 0.5f;
+		}
+
+		//åˆ¤æ–­å“ªäº›ç‚¹åœ¨ä¸‰è§’å½¢å†…ï¼Œå¹¶æ¸²æŸ“
+		aabbxmin =  ceil(std::min(rtTri.vertex[0].x(), std::min(rtTri.vertex[1].x(), rtTri.vertex[2].x())));
+		aabbymin =  ceil(std::min(rtTri.vertex[0].y(), std::min(rtTri.vertex[1].y(), rtTri.vertex[2].y())));
+		aabbxmax = floor(std::max(rtTri.vertex[0].x(), std::max(rtTri.vertex[1].x(), rtTri.vertex[2].x())));
+		aabbymax = floor(std::max(rtTri.vertex[0].y(), std::max(rtTri.vertex[1].y(), rtTri.vertex[2].y())));
+		for (float x = aabbxmin; x <= aabbxmax && x <= width; ++x) {
+			for (float y = aabbymin; y <= aabbymax && y <= height; ++y) {
+				//åˆ¤æ–­ç‚¹åœ¨ä¸‰è§’å½¢å†…éƒ¨
+				t1 = (rtTri.vertex[1].x() - rtTri.vertex[0].x()) * (y - rtTri.vertex[0].y()) - (x - rtTri.vertex[0].x()) * (rtTri.vertex[1].y() - rtTri.vertex[0].y());
+				t2 = (rtTri.vertex[2].x() - rtTri.vertex[1].x()) * (y - rtTri.vertex[1].y()) - (x - rtTri.vertex[1].x()) * (rtTri.vertex[2].y() - rtTri.vertex[1].y());
+				t3 = (rtTri.vertex[0].x() - rtTri.vertex[2].x()) * (y - rtTri.vertex[2].y()) - (x - rtTri.vertex[2].x()) * (rtTri.vertex[0].y() - rtTri.vertex[2].y());
+				if (((t1 > 0) && (t2 > 0) && (t3 > 0)) || ((t1 < 0) && (t2 < 0) && (t3 < 0))) {
+					//è·å¾—é‡å¿ƒåæ ‡
+					alpha = ((rtTri.vertex[1].x() - x) * (rtTri.vertex[2].y() - y) - (rtTri.vertex[2].x() - x) * (rtTri.vertex[1].y() - y)) / ((rtTri.vertex[1].x() - rtTri.vertex[0].x()) * (rtTri.vertex[2].y() - rtTri.vertex[0].y()) - (rtTri.vertex[2].x() - rtTri.vertex[0].x()) * (rtTri.vertex[1].y() - rtTri.vertex[0].y()));
+					beta  = ((rtTri.vertex[0].x() - x) * (rtTri.vertex[2].y() - y) - (rtTri.vertex[2].x() - x) * (rtTri.vertex[0].y() - y)) / ((rtTri.vertex[0].x() - rtTri.vertex[1].x()) * (rtTri.vertex[2].y() - rtTri.vertex[1].y()) - (rtTri.vertex[2].x() - rtTri.vertex[1].x()) * (rtTri.vertex[0].y() - rtTri.vertex[1].y()));
+					gamma = 1 - alpha - beta;
+					//ä½¿ç”¨é€è§†çŸ«æ­£æ·±åº¦æ’å€¼
+					weight = 1.0f / (alpha / rtTri.vertex[0].w() + beta / rtTri.vertex[1].w() + gamma / rtTri.vertex[2].w());
+					float Z = weight * (alpha * rtTri.vertex[0].z() / rtTri.vertex[0].w() + beta * rtTri.vertex[1].z() / rtTri.vertex[1].w() + gamma * rtTri.vertex[2].z() / rtTri.vertex[2].w());
+					if (Z > depth_buffer[getBufferIndex(x, y)]) {
+						depth_buffer[getBufferIndex(x, y)] = Z;
+						frame_buffer[getBufferIndex(x, y)] = shadeFragment(rtTri, model.texture, viewLight, alpha, beta, gamma, weight, viewpos);
+					}
+				}
+			}
+		}
+	}
+}
+
