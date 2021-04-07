@@ -34,7 +34,7 @@ int main() {
     trans.setViewMatrix(eyePos, eyeLookat, upOrient);
     trans.setProjectionMatrix(eye_fov, aspect_ratio, zNear, zFar);
     //开始渲染
-    Rasterizer rs(SRC_WIDTH, SRC_HEIGHT);
+    Rasterizer rs(SRC_WIDTH, SRC_HEIGHT, {0.f, 0.f, 0.f});
     rs.rendering(model, lights, trans);
     //渲染结果打印成图片
     cv::Mat image(SRC_WIDTH, SRC_HEIGHT, CV_32FC3, rs.frame_buffer.data());
